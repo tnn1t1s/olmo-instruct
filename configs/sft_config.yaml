@@ -1,0 +1,103 @@
+# OLMo INIS/Bamboo Fine-tuning Configuration
+# Reference configuration - actual training uses open-instruct CLI
+# See scripts/train_sft.sh for runnable command
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  name_or_path: "allenai/OLMo-2-1124-7B"  # Base model
+  # Alternatives:
+  #   - allenai/OLMo-7B
+  #   - allenai/OLMo-2-0325-32B
+  torch_dtype: bfloat16
+  attn_implementation: flash_attention_2
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+data:
+  # Training data paths (JSONL with Tulu 3 message format)
+  train_files:
+    - data/bamboo_train.jsonl
+    - data/inis_train.jsonl
+
+  # Optional validation files
+  eval_files:
+    - data/bamboo_val.jsonl
+    - data/inis_val.jsonl
+
+  # Dataset mixing (1.0 = equal weight)
+  # Adjust if one domain has more examples
+  mixing_weights:
+    bamboo: 1.0
+    inis: 1.0
+
+  # Sequence configuration
+  max_seq_length: 4096
+
+  # Chat template (OLMo uses ChatML-style)
+  chat_template: |
+    {% for message in messages %}
+    <|im_start|>{{ message.role }}
+    {{ message.content }}<|im_end|>
+    {% endfor %}
+
+# =============================================================================
+# Training Hyperparameters
+# =============================================================================
+training:
+  # Optimizer
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+
+  # Batch sizes
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 8  # Effective batch = GPUs * 1 * 8
+
+  # Duration
+  num_train_epochs: 3
+  # max_steps: -1  # Override epochs if set
+
+  # Precision
+  bf16: true
+  tf32: true
+
+  # Checkpointing
+  save_strategy: epoch
+  save_total_limit: 3
+
+  # Evaluation
+  eval_strategy: epoch
+
+  # Logging
+  logging_steps: 10
+  report_to: wandb
+
+# =============================================================================
+# DeepSpeed Configuration (for multi-GPU)
+# =============================================================================
+deepspeed:
+  stage: 2  # ZeRO Stage 2 for 7B model
+  # stage: 3  # Use Stage 3 for 32B+ models
+  offload_optimizer: false
+  offload_param: false
+
+# =============================================================================
+# Special Tokens (optional)
+# =============================================================================
+# Uncomment to add domain-specific tokens
+# special_tokens:
+#   additional_special_tokens:
+#     - "<|INIS|>"
+#     - "<|BAMBOO|>"
+
+# =============================================================================
+# Output
+# =============================================================================
+output:
+  output_dir: ./outputs/olmo-inis-bamboo
+  run_name: olmo-7b-inis-bamboo-sft
