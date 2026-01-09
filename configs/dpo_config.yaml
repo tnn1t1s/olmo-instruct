@@ -1,0 +1,81 @@
+# OLMo INIS/Bamboo DPO Configuration
+# Reference configuration - actual training uses open-instruct CLI
+# See scripts/train_dpo.sh for runnable command
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  # Start from SFT checkpoint (output of train_sft.sh)
+  name_or_path: "./outputs/olmo-inis-bamboo"
+  torch_dtype: bfloat16
+  attn_implementation: flash_attention_2
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+data:
+  # DPO preference data (prompt, chosen, rejected format)
+  train_files:
+    - data/bamboo_dpo.jsonl
+    - data/inis_dpo.jsonl
+
+  # Sequence configuration
+  max_seq_length: 4096
+  max_prompt_length: 2048
+
+# =============================================================================
+# DPO Hyperparameters
+# =============================================================================
+dpo:
+  # Beta controls strength of preference (higher = stronger preference signal)
+  beta: 0.1
+
+  # Loss type: sigmoid (standard DPO), hinge, ipo, kto_pair
+  loss_type: sigmoid
+
+  # Length normalization (used by Tulu 3)
+  # Normalizes loss by response length to avoid length bias
+  length_normalization: true
+
+  # Reference model (usually same as base, frozen)
+  # If null, uses the model itself as reference
+  reference_model: null
+
+  # Label smoothing for preference labels
+  label_smoothing: 0.0
+
+# =============================================================================
+# Training Hyperparameters
+# =============================================================================
+training:
+  # Optimizer
+  learning_rate: 5.0e-7  # Lower than SFT
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  lr_scheduler_type: cosine
+
+  # Batch sizes
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+
+  # Duration
+  num_train_epochs: 1  # DPO typically needs fewer epochs
+
+  # Precision
+  bf16: true
+
+  # Checkpointing
+  save_strategy: epoch
+  save_total_limit: 2
+
+  # Logging
+  logging_steps: 10
+  report_to: wandb
+
+# =============================================================================
+# Output
+# =============================================================================
+output:
+  output_dir: ./outputs/olmo-inis-bamboo-dpo
+  run_name: olmo-7b-inis-bamboo-dpo
