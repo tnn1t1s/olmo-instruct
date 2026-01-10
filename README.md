@@ -9,13 +9,14 @@ Fine-tuning OLMo for two domains:
 Follows the OLMo 3 post-training recipe:
 
 ```
-Base Model → SFT → DPO → [RLVR]
+Base Model → SFT → DPO → RLVR
 ```
 
-| Stage | Script | Data |
-|-------|--------|------|
-| SFT | `scripts/train_sft.sh` | `*_train.jsonl` |
-| DPO | `scripts/train_dpo.sh` | `*_dpo.jsonl` |
+| Stage | Script | Data | Description |
+|-------|--------|------|-------------|
+| SFT | `scripts/train_sft.sh` | `*_train.jsonl` | Supervised fine-tuning |
+| DPO | `scripts/train_dpo.sh` | `*_dpo.jsonl` | Direct preference optimization |
+| RLVR | `scripts/train_rlvr.sh` | `*_rlvr.jsonl` | RL with verifiable rewards |
 
 ## Training Data Format
 
@@ -40,12 +41,6 @@ Uses [Tulu 3 message format](https://huggingface.co/datasets/allenai/tulu-3-sft-
 {"role": "assistant", "content": "<think>\nIbis uses deferred execution...\n```python\nimport ibis\n...\n```\n</think>\n\nHere's the solution: ..."}
 ```
 
-**INIS domain** uses structured outputs (JSON extraction, Q&A):
-
-```json
-{"role": "assistant", "content": "```json\n{\"isotope\": \"Cs-137\", ...}\n```"}
-```
-
 ### DPO Data
 
 Preference pairs with prompt, chosen, and rejected:
@@ -57,6 +52,21 @@ Preference pairs with prompt, chosen, and rejected:
   "chosen": [{"role": "assistant", "content": "correct response"}],
   "rejected": [{"role": "assistant", "content": "incorrect response"}],
   "source": "domain-dpo"
+}
+```
+
+### RLVR Data
+
+Prompts with ground truth for verification:
+
+```json
+{
+  "id": "rlvr_001",
+  "prompt": "Using Ibis, calculate total revenue...",
+  "ground_truth": "2500",
+  "verification_type": "numeric",
+  "test_data": {"sales": [...]},
+  "source": "bamboo-rlvr"
 }
 ```
 
@@ -78,6 +88,9 @@ pip install git+https://github.com/allenai/open-instruct.git
 
 # Stage 2: DPO (after SFT completes)
 ./scripts/train_dpo.sh
+
+# Stage 3: RLVR (after DPO completes, requires multi-GPU)
+NUM_GPUS=2 ./scripts/train_rlvr.sh
 ```
 
 ## Project Structure
@@ -87,37 +100,52 @@ olmo-instruct/
 ├── data/
 │   ├── bamboo_train.jsonl    # SFT: Ibis reasoning examples
 │   ├── bamboo_dpo.jsonl      # DPO: preference pairs
-│   ├── inis_train.jsonl      # SFT: Technical Q&A examples
-│   └── inis_dpo.jsonl        # DPO: preference pairs
+│   ├── bamboo_rlvr.jsonl     # RLVR: verifiable prompts
+│   ├── inis_train.jsonl      # SFT: Technical Q&A
+│   ├── inis_dpo.jsonl        # DPO: preference pairs
+│   └── inis_rlvr.jsonl       # RLVR: verifiable prompts
 ├── configs/
 │   ├── sft_config.yaml       # SFT reference config
 │   ├── dpo_config.yaml       # DPO reference config
+│   ├── rlvr_config.yaml      # RLVR reference config
 │   └── ds_config.json        # DeepSpeed config
 ├── evaluation/
 │   ├── __init__.py
-│   └── ibis_evaluator.py     # Evaluation harness
+│   ├── ibis_evaluator.py     # Evaluation harness
+│   └── verifier.py           # RLVR reward functions
 ├── scripts/
-│   ├── train_sft.sh          # SFT training script
-│   └── train_dpo.sh          # DPO training script
+│   ├── train_sft.sh          # SFT training
+│   ├── train_dpo.sh          # DPO training
+│   └── train_rlvr.sh         # RLVR training
 └── pyproject.toml
 ```
 
-## Evaluation
+## Evaluation & Verification
 
-The evaluation harness validates:
-
-**Bamboo domain:**
-- Code extraction from `<think>` blocks
-- Ibis code syntax validity
-- Execution on DuckDB backend
-
-**INIS domain:**
-- JSON format validity
-- Structure compliance
+### Post-training Evaluation
 
 ```bash
 python evaluation/ibis_evaluator.py data/bamboo_train.jsonl bamboo
 ```
+
+### RLVR Verification
+
+The verifier provides binary rewards (0/1) for RL training:
+
+```python
+from evaluation import compute_reward
+
+reward = compute_reward(model_output, {
+    "ground_truth": "2500",
+    "verification_type": "numeric",
+    "test_data": {...}
+})
+```
+
+Verification types:
+- `numeric`: Compare extracted number to ground truth
+- `string`: Exact string match
+- `json_field`: Check specific JSON field value
 
 ## Configuration
 
@@ -128,7 +156,6 @@ python evaluation/ibis_evaluator.py data/bamboo_train.jsonl bamboo
 | Base model | `allenai/OLMo-2-1124-7B` |
 | Learning rate | `2e-5` |
 | Epochs | 3 |
-| Max sequence length | 4096 |
 
 ### DPO (`configs/dpo_config.yaml`)
 
@@ -139,9 +166,19 @@ python evaluation/ibis_evaluator.py data/bamboo_train.jsonl bamboo
 | Beta | 0.1 |
 | Epochs | 1 |
 
+### RLVR (`configs/rlvr_config.yaml`)
+
+| Parameter | Value |
+|-----------|-------|
+| Base model | DPO checkpoint |
+| Learning rate | `1e-6` |
+| KL coef | 0.05 |
+| PPO epochs | 4 |
+
 ## References
 
 - [OLMo 3 Blog](https://allenai.org/blog/olmo3)
 - [Tulu 3 Technical](https://allenai.org/blog/tulu-3-technical)
 - [open-instruct](https://github.com/allenai/open-instruct)
 - [Ibis Framework](https://ibis-project.org/)
+- [RLVR Explained](https://www.promptfoo.dev/blog/rlvr-explained/)

@@ -1,0 +1,104 @@
+# OLMo INIS/Bamboo RLVR Configuration
+# Reinforcement Learning with Verifiable Rewards
+# See scripts/train_rlvr.sh for runnable command
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  # Start from DPO checkpoint (output of train_dpo.sh)
+  name_or_path: "./outputs/olmo-inis-bamboo-dpo"
+  torch_dtype: bfloat16
+  attn_implementation: flash_attention_2
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+data:
+  # RLVR prompts with ground truth for verification
+  train_files:
+    - data/bamboo_rlvr.jsonl
+    - data/inis_rlvr.jsonl
+
+  # Sequence configuration
+  max_seq_length: 4096
+  max_prompt_length: 2048
+  max_response_length: 2048
+
+# =============================================================================
+# RLVR Configuration
+# =============================================================================
+rlvr:
+  # Verifier module path
+  verifier_module: "evaluation.verifier"
+  verifier_function: "compute_reward"
+
+  # Reward configuration
+  reward_correct: 1.0
+  reward_incorrect: 0.0
+
+  # Response sampling
+  num_samples_per_prompt: 4  # Generate multiple responses per prompt
+  temperature: 0.7
+  top_p: 0.95
+
+  # KL divergence penalty (regularization against reference model)
+  kl_coef: 0.05
+
+# =============================================================================
+# PPO Training Hyperparameters
+# =============================================================================
+ppo:
+  # Learning rate
+  learning_rate: 1.0e-6  # Very low for RL stability
+
+  # PPO-specific
+  ppo_epochs: 4
+  mini_batch_size: 4
+  clip_range: 0.2
+  clip_range_vf: 0.2
+
+  # Value function
+  vf_coef: 0.1
+
+  # Entropy bonus (encourages exploration)
+  entropy_coef: 0.01
+
+  # Gradient clipping
+  max_grad_norm: 1.0
+
+  # GAE (Generalized Advantage Estimation)
+  gamma: 1.0
+  gae_lambda: 0.95
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  # Batch sizes
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 4
+
+  # Duration
+  num_train_epochs: 1
+  # Or use num_episodes for RL
+  # num_episodes: 10000
+
+  # Precision
+  bf16: true
+
+  # Checkpointing
+  save_strategy: steps
+  save_steps: 500
+  save_total_limit: 3
+
+  # Logging
+  logging_steps: 10
+  report_to: wandb
+
+# =============================================================================
+# Output
+# =============================================================================
+output:
+  output_dir: ./outputs/olmo-inis-bamboo-rlvr
+  run_name: olmo-7b-inis-bamboo-rlvr
